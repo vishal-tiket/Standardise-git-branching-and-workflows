@@ -1,0 +1,129 @@
+name: Handle Develop PR Sync
+
+on:
+  pull_request:
+    branches:
+      - release
+      - "release/**"
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: develop-sync-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  sync_to_develop:
+    name: Sync release PR commits into develop
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Attempt merge PR head into develop
+        id: merge
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          git fetch --all --tags
+
+          if git ls-remote --exit-code --heads origin develop >/dev/null 2>&1; then
+            echo "Checking out existing develop branch..."
+            git checkout develop
+            git pull --ff-only origin develop
+          else
+            echo "develop does not exist. Creating from main..."
+            git fetch origin main
+            git checkout -b develop origin/main
+            git push -u origin develop
+          fi
+
+          echo "Merging PR head $PR_HEAD_SHA into develop..."
+          if git merge --no-ff --no-edit "$PR_HEAD_SHA"; then
+            git push origin develop
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "merged=false" >> "$GITHUB_OUTPUT"
+            git merge --abort || true
+          fi
+
+      - name: Create or update develop → main PR
+        if: steps.merge.outputs.merged == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin main develop
+
+          ahead="$(git rev-list --count origin/main..origin/develop)"
+          if [ "$ahead" = "0" ]; then
+            echo "develop is not ahead of main; skipping PR create/update."
+            exit 0
+          fi
+
+          title="chore: sync develop to main"
+          body="$(cat <<'EOF'
+          This PR is auto-maintained by **Handle Develop PR Sync**.
+
+          - **Source:** `develop`
+          - **Target:** `main`
+          - **Updated when:** release PRs are synced into `develop`
+          EOF
+          )"
+
+          pr_number="$(gh pr list --base main --head develop --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$pr_number" ]; then
+            gh pr create --base main --head develop --title "$title" --body "$body" --draft
+            echo "Created develop → main draft PR."
+          else
+            gh pr edit "$pr_number" --title "$title" --body "$body"
+            echo "Updated develop → main draft PR #${pr_number}."
+          fi
+
+      - name: Comment on PR when merge conflict happens
+        if: steps.merge.outputs.merged == 'false' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = [
+              "⚠️ **Auto-sync to `develop` failed due to merge conflicts.**",
+              "",
+              "Please resolve conflicts locally by merging the PR head SHA into `develop`, then push `develop`.",
+              "",
+              "Suggested steps:",
+              "```bash",
+              "git fetch origin --prune",
+              "git checkout develop",
+              "git pull --ff-only origin develop",
+              `git merge ${pr.head.sha}`,
+              "# resolve conflicts",
+              "git add -A",
+              "git commit",
+              "git push origin develop",
+              "```",
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body,
+            });
+
