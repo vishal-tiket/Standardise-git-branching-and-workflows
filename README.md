@@ -27,8 +27,9 @@ npx changeset
 
 - **Changeset gate**: `.github/workflows/changeset-required.yml` — blocks PRs targeting `release` or `release/**` if there is no `.changeset/*.md`.
 - **Auto-sync to develop**: `.github/workflows/handle-develop-pr-sync.yml` — on those PRs, merges the PR head SHA into `develop` and pushes; creates/updates a draft `develop` → `main` PR; comments on conflict with manual steps.
-- **Prerelease tag on develop**: `.github/workflows/alpha-prerelease.yml` — runs after **Handle Develop PR Sync** succeeds (`workflow_run`), on manual `workflow_dispatch`, or on direct pushes to `develop`; creates and pushes git tag `alpha-<runNumber>`.
-- **Stable release tag + version bump**: `.github/workflows/release-tag.yml` — when a `release/* -> main` PR is labeled **`release`**, runs `npx changeset version`, commits the bump, and creates/pushes stable tag `vX.Y.Z`.
+- **Prerelease tag on develop**: `.github/workflows/alpha-prerelease.yml` — runs after **Handle Develop PR Sync** succeeds (`workflow_run`), on manual `workflow_dispatch`, or on direct pushes to `develop`; creates and pushes git tag `alpha-<runNumber>` and updates a bot comment on the draft **develop → main** PR with tag, commit, and workflow link.
+- **Release → main PR**: `.github/workflows/release-to-main-pr.yml` — on every push to `release` or `release/**`, creates or updates a ready-for-review PR into `main` showing the release diff.
+- **Stable release tag + version bump**: `.github/workflows/release-tag.yml` — when that **release → main** PR is labeled **`release`**, runs `npx changeset version`, commits the bump, and creates/pushes stable tag `vX.Y.Z`.
 
 ## End-to-end demo script (manual)
 1. **Create a feature branch**
@@ -52,13 +53,13 @@ git push -u origin HEAD
 - the PR must include `.changeset/*.md` (workflow enforces this)
 - the develop sync workflow will try to merge your PR head commit into `develop`
 
-4. **Observe prerelease tags**
-- after sync succeeds, **Generate Alpha Prerelease Tag** runs via `workflow_run` and creates `alpha-<runNumber>` on `develop`
+4. **Observe prerelease tags and PR comment**
+- after sync succeeds, **Generate Alpha Prerelease Tag** runs via `workflow_run`, creates `alpha-<runNumber>` on `develop`, and updates the **develop → main** PR with prerelease details
 
 5. **QA sign-off → squash merge feature into `release` or `release/*`**
 
-6. **Open `release/* -> main` PR, then add label `release`**
-- workflow bumps `package.json` and creates stable `vX.Y.Z` tag
+6. **Review the auto-created `release` → `main` PR, then add label `release` after QA**
+- created/updated when features merge into `release`; labeling runs stable version bump and `vX.Y.Z` tag
 
 7. **Deploy using the new tag**
 - use `alpha-*` tags for Gatotkaca prerelease deploys

@@ -1,0 +1,69 @@
+name: Release to Main PR
+
+on:
+  push:
+    branches:
+      - release
+      - "release/**"
+  workflow_dispatch:
+    inputs:
+      release_branch:
+        description: Release branch to open PR from
+        required: true
+        default: release
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: release-to-main-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  open_release_pr:
+    name: Create or update release → main PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create or update release → main PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_branch || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin main "${RELEASE_BRANCH}"
+
+          ahead="$(git rev-list --count "origin/main..origin/${RELEASE_BRANCH}")"
+          if [ "$ahead" = "0" ]; then
+            echo "Release branch '${RELEASE_BRANCH}' is not ahead of main; skipping."
+            exit 0
+          fi
+
+          title="chore(release): promote ${RELEASE_BRANCH} to main"
+          body="$(cat <<EOF
+          This PR is auto-maintained by **Release to Main PR**.
+
+          - **Source:** \`${RELEASE_BRANCH}\`
+          - **Target:** \`main\`
+          - **Updated when:** changes are merged or pushed to the release branch
+
+          After QA sign-off, add the \`release\` label to run the stable version bump and \`vX.Y.Z\` tag workflow.
+          EOF
+          )"
+
+          pr_number="$(gh pr list --base main --head "${RELEASE_BRANCH}" --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$pr_number" ]; then
+            gh pr create --base main --head "${RELEASE_BRANCH}" --title "$title" --body "$body"
+            echo "Created release → main PR from ${RELEASE_BRANCH}."
+          else
+            gh pr edit "$pr_number" --title "$title" --body "$body"
+            echo "Updated release → main PR #${pr_number}."
+          fi

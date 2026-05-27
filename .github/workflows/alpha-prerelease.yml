@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: ${{ github.workflow }}-develop
@@ -47,7 +48,58 @@ jobs:
           node-version: 20
 
       - name: Create and push alpha tag
+        id: alpha_tag
         env:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: |
           npm run release:alpha
+
+      - name: Resolve develop → main PR
+        id: meta
+        if: steps.alpha_tag.outcome == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pr_number="$(gh pr list --base main --head develop --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$pr_number" ]; then
+            echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+            echo "has_pr=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_pr=false" >> "$GITHUB_OUTPUT"
+            echo "No open develop → main PR; skipping comment."
+          fi
+
+      - name: Write prerelease comment body
+        if: steps.meta.outputs.has_pr == 'true'
+        env:
+          ALPHA_TAG: alpha-${{ github.run_number }}
+        run: |
+          short_sha="$(git rev-parse --short HEAD)"
+          run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          cat > version.md <<EOF
+          New pre-release was generated.
+
+          | Field | Value |
+          |-------|-------|
+          | Tag | \`${ALPHA_TAG}\` |
+          | Commit | \`${short_sha}\` |
+          | Run | [View workflow](${run_url}) |
+          EOF
+
+      - name: Find comment
+        if: steps.meta.outputs.has_pr == 'true'
+        uses: peter-evans/find-comment@v4
+        id: fc
+        with:
+          issue-number: ${{ steps.meta.outputs.pr_number }}
+          comment-author: github-actions[bot]
+          body-includes: New pre-release was generated.
+
+      - name: Create or update comment
+        if: steps.meta.outputs.has_pr == 'true'
+        uses: peter-evans/create-or-update-comment@v5
+        with:
+          comment-id: ${{ steps.fc.outputs.comment-id }}
+          issue-number: ${{ steps.meta.outputs.pr_number }}
+          body-path: version.md
+          edit-mode: replace
