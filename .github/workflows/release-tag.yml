@@ -1,0 +1,58 @@
+name: Stable Release (label-driven)
+
+on:
+  pull_request_target:
+    types: [labeled, reopened, synchronize]
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  stable_release:
+    name: Version bump + stable tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_target' &&
+        contains(toJson(github.event.pull_request.labels), '\"name\":\"release\"') &&
+        startsWith(github.event.pull_request.head.ref, 'release/'))
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Bump versions + tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Ensure we push back to the PR head branch (release/*)
+          git checkout -B "${{ github.event.pull_request.head.ref }}"
+          npm run release:stable
+

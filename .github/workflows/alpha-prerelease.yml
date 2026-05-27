@@ -1,0 +1,43 @@
+name: Generate Alpha Prerelease Tag
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-develop
+  cancel-in-progress: true
+
+jobs:
+  alpha_tag:
+    name: Tag develop as alpha prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Create and push alpha tag
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          npm run release:alpha
+

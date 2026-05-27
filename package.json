@@ -1,0 +1,16 @@
+{
+  "name": "standardise-git-branching-and-workflows-demo",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Demo repo for standardised branching, Changesets, and GitHub workflows.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release:alpha": "node ./scripts/release/alpha-tag.mjs",
+    "release:stable": "node ./scripts/release/stable-release.mjs"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.28.1"
+  }
+}

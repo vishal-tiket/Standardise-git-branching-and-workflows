@@ -1,0 +1,85 @@
+name: Handle Develop PR Sync
+
+on:
+  pull_request:
+    branches:
+      - "release/**"
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: develop-sync-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  sync_to_develop:
+    name: Sync release PR commits into develop
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Attempt merge PR head into develop
+        id: merge
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          git fetch --all --tags
+          git checkout develop
+          git pull --ff-only origin develop
+
+          echo "Merging PR head $PR_HEAD_SHA into develop..."
+          if git merge --no-ff --no-edit "$PR_HEAD_SHA"; then
+            git push origin develop
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "merged=false" >> "$GITHUB_OUTPUT"
+            git merge --abort || true
+          fi
+
+      - name: Comment on PR when merge conflict happens
+        if: steps.merge.outputs.merged == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = [
+              "⚠️ **Auto-sync to `develop` failed due to merge conflicts.**",
+              "",
+              "Please resolve conflicts locally by merging the PR head SHA into `develop`, then push `develop`.",
+              "",
+              "Suggested steps:",
+              "```bash",
+              "git fetch origin --prune",
+              "git checkout develop",
+              "git pull --ff-only origin develop",
+              `git merge ${pr.head.sha}`,
+              "# resolve conflicts",
+              "git add -A",
+              "git commit",
+              "git push origin develop",
+              "```",
+            ].join(\"\\n\");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body,
+            });
+
