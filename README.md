@@ -22,9 +22,12 @@ npx changeset
 ```
 
 ## GitHub Actions in this repo
+
+**Prerequisite:** merge `.github/workflows/` into **`main`** so workflows appear in the Actions tab and `workflow_run` uses the latest definitions.
+
 - **Changeset gate**: `.github/workflows/changeset-required.yml` — blocks PRs targeting `release` or `release/**` if there is no `.changeset/*.md`.
-- **Auto-sync to develop**: `.github/workflows/handle-develop-pr-sync.yml` — on those PRs, merges the PR head SHA into `develop` and pushes; comments on conflict with manual steps.
-- **Prerelease tag on develop**: `.github/workflows/alpha-prerelease.yml` — on every push to `develop`, creates and pushes git tag `alpha-<runNumber>`.
+- **Auto-sync to develop**: `.github/workflows/handle-develop-pr-sync.yml` — on those PRs, merges the PR head SHA into `develop` and pushes; creates/updates a draft `develop` → `main` PR; comments on conflict with manual steps.
+- **Prerelease tag on develop**: `.github/workflows/alpha-prerelease.yml` — runs after **Handle Develop PR Sync** succeeds (`workflow_run`), on manual `workflow_dispatch`, or on direct pushes to `develop`; creates and pushes git tag `alpha-<runNumber>`.
 - **Stable release tag + version bump**: `.github/workflows/release-tag.yml` — when a `release/* -> main` PR is labeled **`release`**, runs `npx changeset version`, commits the bump, and creates/pushes stable tag `vX.Y.Z`.
 
 ## End-to-end demo script (manual)
@@ -50,7 +53,7 @@ git push -u origin HEAD
 - the develop sync workflow will try to merge your PR head commit into `develop`
 
 4. **Observe prerelease tags**
-- each push to `develop` should create a new `alpha-<runNumber>` tag
+- after sync succeeds, **Generate Alpha Prerelease Tag** runs via `workflow_run` and creates `alpha-<runNumber>` on `develop`
 
 5. **QA sign-off → squash merge feature into `release` or `release/*`**
 

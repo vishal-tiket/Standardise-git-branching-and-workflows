@@ -5,6 +5,12 @@ on:
     branches:
       - develop
   workflow_dispatch:
+  # Bot pushes to develop (GITHUB_TOKEN) do not trigger `push` workflows; chain from sync instead.
+  workflow_run:
+    workflows:
+      - Handle Develop PR Sync
+    types:
+      - completed
 
 permissions:
   contents: write
@@ -18,11 +24,16 @@ jobs:
     name: Tag develop as alpha prerelease
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: develop
           fetch-depth: 0
 
       - name: Configure git author
@@ -40,4 +51,3 @@ jobs:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: |
           npm run release:alpha
-
