@@ -3,6 +3,7 @@ name: Handle Develop PR Sync
 on:
   pull_request:
     branches:
+      - release
       - "release/**"
     types: [opened, synchronize, reopened]
   workflow_dispatch:

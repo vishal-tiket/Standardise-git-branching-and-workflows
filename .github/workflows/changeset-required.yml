@@ -3,6 +3,7 @@ name: Changeset Required
 on:
   pull_request:
     branches:
+      - release
       - "release/**"
     types: [opened, synchronize, reopened, ready_for_review]
 
